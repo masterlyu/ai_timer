@@ -13,36 +13,76 @@ import { saveSessionToIndexedDB } from "@/lib/dbUtils";
 interface TimerProps {
   initialTime?: number; // 초 단위
   onComplete?: () => void;
+  // 상위 컴포넌트에서 관리하는 상태
+  currentTime?: number;
+  isActive?: boolean;
+  isPaused?: boolean;
+  currentFocusRate?: number;
+  onStateChange?: (time: number, isActive: boolean, isPaused: boolean, focusRate: number) => void;
 }
 
-export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
-  const [time, setTime] = useState(initialTime);
-  const [isActive, setIsActive] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [focusRate, setFocusRate] = useState(100);
+export function Timer({ 
+  initialTime = 25 * 60, 
+  onComplete,
+  currentTime,
+  isActive: externalIsActive,
+  isPaused: externalIsPaused,
+  currentFocusRate: externalFocusRate,
+  onStateChange
+}: TimerProps) {
+  // 상위 컴포넌트에서 상태를 관리하는 경우와 내부에서 관리하는 경우를 구분
+  const isExternallyControlled = onStateChange !== undefined;
+  
+  // 내부 상태 (상위 컴포넌트에서 관리하지 않는 경우 사용)
+  const [internalTime, setInternalTime] = useState(initialTime);
+  const [internalIsActive, setInternalIsActive] = useState(false);
+  const [internalIsPaused, setInternalIsPaused] = useState(false);
+  const [internalFocusRate, setInternalFocusRate] = useState(100);
+  
+  // 실제 사용할 상태 (외부 또는 내부)
+  const time = isExternallyControlled ? (currentTime ?? initialTime) : internalTime;
+  const isActive = isExternallyControlled ? (externalIsActive ?? false) : internalIsActive;
+  const isPaused = isExternallyControlled ? (externalIsPaused ?? false) : internalIsPaused;
+  const focusRate = isExternallyControlled ? (externalFocusRate ?? 100) : internalFocusRate;
+  
   const [showRecommendation, setShowRecommendation] = useState(false);
   const [recommendedTime, setRecommendedTime] = useState(0);
   const [completedSession, setCompletedSession] = useState<SessionData | null>(null);
   const sessionStartTime = useRef<Date | null>(null);
   const totalSessionTime = useRef<number>(0);
 
+  // 상태 변경 함수 (내부 상태 변경 및 필요시 외부 상태 업데이트)
+  const updateState = useCallback((
+    newTime: number, 
+    newIsActive: boolean, 
+    newIsPaused: boolean, 
+    newFocusRate: number
+  ) => {
+    if (isExternallyControlled) {
+      // 외부 상태 업데이트
+      onStateChange!(newTime, newIsActive, newIsPaused, newFocusRate);
+    } else {
+      // 내부 상태 업데이트
+      setInternalTime(newTime);
+      setInternalIsActive(newIsActive);
+      setInternalIsPaused(newIsPaused);
+      setInternalFocusRate(newFocusRate);
+    }
+  }, [isExternallyControlled, onStateChange]);
+
   // 타이머 리셋
   const resetTimer = useCallback(() => {
-    setTime(initialTime);
-    setIsActive(false);
-    setIsPaused(false);
+    updateState(initialTime, false, false, 100);
     sessionStartTime.current = null;
     totalSessionTime.current = 0;
-  }, [initialTime]);
+  }, [initialTime, updateState]);
 
   // 특정 시간으로 타이머 시작
   const startTimerWithDuration = useCallback((duration: number) => {
-    setTime(duration);
-    setIsActive(true);
-    setIsPaused(false);
+    updateState(duration, true, false, 100);
     sessionStartTime.current = new Date();
     setShowRecommendation(false);
-  }, []);
+  }, [updateState]);
 
   // 타이머 시작 전 AI 추천 시간 확인
   const checkRecommendedTime = useCallback(async () => {
@@ -80,19 +120,19 @@ export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
       totalSessionTime.current += (new Date().getTime() - sessionStartTime.current.getTime()) / 1000;
       sessionStartTime.current = null;
     }
-    setIsPaused(true);
-  }, []);
+    updateState(time, isActive, true, focusRate);
+  }, [time, isActive, focusRate, updateState]);
 
   // 타이머 재개
   const resumeTimer = useCallback(() => {
     sessionStartTime.current = new Date();
-    setIsPaused(false);
-  }, []);
+    updateState(time, isActive, false, focusRate);
+  }, [time, isActive, focusRate, updateState]);
 
   // 집중도 변경 처리
   const handleFocusRateChange = useCallback((rate: number) => {
-    setFocusRate(rate);
-  }, []);
+    updateState(time, isActive, isPaused, rate);
+  }, [time, isActive, isPaused, updateState]);
 
   // 세션 결과 닫기
   const handleCloseSessionResult = useCallback(() => {
@@ -116,39 +156,36 @@ export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
 
     if (isActive && !isPaused) {
       interval = setInterval(() => {
-        setTime((prevTime) => {
-          if (prevTime <= 1) {
-            clearInterval(interval!);
-            setIsActive(false);
-            
-            // 세션 완료 시 총 세션 시간 계산
-            if (sessionStartTime.current) {
-              totalSessionTime.current += (new Date().getTime() - sessionStartTime.current.getTime()) / 1000;
-              sessionStartTime.current = null;
-            }
-            
-            // 세션 데이터 생성
-            const sessionData: SessionData = {
-              date: new Date().toISOString(),
-              duration: totalSessionTime.current,
-              focusRate: focusRate,
-              timeOfDay: new Date().getHours(),
-              completedSuccessfully: true
-            };
-            
-            // 세션 데이터를 IndexedDB에 저장
-            saveSessionToIndexedDB(sessionData);
-            
-            // 기존 LocalStorage에도 백업으로 저장
-            saveSessionData(sessionData);
-            
-            // 세션 결과 표시
-            setCompletedSession(sessionData);
-            
-            return 0;
+        updateState(time - 1, isActive, isPaused, focusRate);
+        
+        if (time <= 1) {
+          clearInterval(interval!);
+          updateState(0, false, false, focusRate);
+          
+          // 세션 완료 시 총 세션 시간 계산
+          if (sessionStartTime.current) {
+            totalSessionTime.current += (new Date().getTime() - sessionStartTime.current.getTime()) / 1000;
+            sessionStartTime.current = null;
           }
-          return prevTime - 1;
-        });
+          
+          // 세션 데이터 생성
+          const sessionData: SessionData = {
+            date: new Date().toISOString(),
+            duration: totalSessionTime.current,
+            focusRate: focusRate,
+            timeOfDay: new Date().getHours(),
+            completedSuccessfully: true
+          };
+          
+          // 세션 데이터를 IndexedDB에 저장
+          saveSessionToIndexedDB(sessionData);
+          
+          // 기존 LocalStorage에도 백업으로 저장
+          saveSessionData(sessionData);
+          
+          // 세션 결과 표시
+          setCompletedSession(sessionData);
+        }
       }, 1000);
     } else if (interval) {
       clearInterval(interval);
@@ -157,7 +194,7 @@ export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isActive, isPaused, focusRate]);
+  }, [isActive, isPaused, time, focusRate, updateState]);
 
   // 타이머 UI
   return (
@@ -215,21 +252,17 @@ export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
       {/* 집중도 모니터링 */}
       <FocusMonitor isActive={isActive && !isPaused} onFocusRateChange={handleFocusRateChange} />
 
-      {/* AI 추천 시간 다이얼로그 */}
+      {/* 추천 시간 다이얼로그 */}
       <Dialog open={showRecommendation} onOpenChange={setShowRecommendation}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>AI 추천 공부 시간</DialogTitle>
+            <DialogTitle>맞춤 공부 시간 추천</DialogTitle>
             <DialogDescription>
-              최근 세션 데이터를 분석한 결과, 현재 시간대에 가장 효과적인 공부 시간은 {formatTime(recommendedTime)}입니다.
+              AI가 분석한 결과, 현재 시간대에 가장 적합한 공부 시간은 {formatTime(recommendedTime)}입니다.
+              이 시간으로 타이머를 설정하시겠습니까?
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              이 시간대에 성공적으로 완료한 세션을 기반으로 계산되었습니다. 추천 시간을 사용하시겠습니까?
-            </p>
-          </div>
-          <DialogFooter className="flex space-x-2 sm:space-x-0">
+          <DialogFooter className="flex space-x-2 justify-end">
             <Button variant="outline" onClick={useDefaultTime}>
               기본 시간 사용 ({formatTime(initialTime)})
             </Button>
@@ -242,8 +275,8 @@ export function Timer({ initialTime = 25 * 60, onComplete }: TimerProps) {
 
       {/* 세션 결과 */}
       {completedSession && (
-        <SessionResult
-          session={completedSession}
+        <SessionResult 
+          session={completedSession} 
           onClose={handleCloseSessionResult}
           onStartNewSession={handleStartNewSession}
         />

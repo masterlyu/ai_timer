@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "@/app/fonts";
 import "./globals.css";
 import { UserProvider } from "@/lib/context/UserContext";
+import { SessionProvider } from "next-auth/react";
+import { AuthProvider } from "@/lib/context/AuthProvider";
 
 export const metadata: Metadata = {
   title: "AI 기반 스마트 공부 타이머",
@@ -25,9 +27,11 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="antialiased">
-        <UserProvider>
-          {children}
-        </UserProvider>
+        <AuthProvider>
+          <UserProvider>
+            {children}
+          </UserProvider>
+        </AuthProvider>
       </body>
     </html>
   );

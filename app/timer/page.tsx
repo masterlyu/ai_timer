@@ -1,22 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/context/UserContext";
+import { useSession } from "next-auth/react";
 import { Timer } from "@/components/Timer";
 import { StudyStats } from "@/components/StudyStats";
-import { MenuTabs } from "@/components/MenuTabs";
 import { StatsView } from "@/components/StatsView";
 import { SettingsView } from "@/components/SettingsView";
 import { getSessionHistory, SessionData } from "@/lib/aiUtils";
 import { getAllSessions, getSessionsByDateRange, saveSetting, getSetting } from "@/lib/dbUtils";
 import { generateStatsSummary } from "@/lib/statsUtils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function TimerPage() {
   const { userInfo, isUserInfoSet } = useUser();
+  const { status, data: session } = useSession();
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   const [activeTab, setActiveTab] = useState("timer");
+  
+  // 세션 정보 디버깅 useEffect 수정
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      // 디버깅 로그 제거
+    } else if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, session, router]);
   
   // 오늘의 공부 시간과 집중도
   const [totalStudyTime, setTotalStudyTime] = useState(0); // 초 단위
@@ -28,11 +39,32 @@ export default function TimerPage() {
   const [bestStudyDay, setBestStudyDay] = useState("월요일");
   const [bestStudyTime, setBestStudyTime] = useState("오전 10시-12시");
   
-  // 타이머 완료 시 호출되는 함수
-  const handleTimerComplete = () => {
-    // 세션 기록에서 오늘의 공부 시간과 집중도 계산
-    updateStats();
-  };
+  // 타이머 상태를 페이지 레벨에서 관리
+  const [currentTime, setCurrentTime] = useState(25 * 60); // 기본 25분
+  const [isActive, setIsActive] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  
+  // 타이머 상태 변경 핸들러
+  const handleTimerStateChange = useCallback((
+    time: number, 
+    active: boolean, 
+    paused: boolean, 
+    rate: number
+  ) => {
+    setCurrentTime(time);
+    setIsActive(active);
+    setIsPaused(paused);
+    setFocusRate(rate);
+  }, []);
+  
+  // 타이머 완료 핸들러
+  const handleTimerComplete = useCallback(() => {
+    // 타이머 완료 시 상태 초기화
+    setCurrentTime(25 * 60);
+    setIsActive(false);
+    setIsPaused(false);
+    setFocusRate(100);
+  }, []);
   
   // 통계 업데이트
   const updateStats = async () => {
@@ -327,11 +359,6 @@ export default function TimerPage() {
     }));
   };
   
-  // 탭 변경 시 호출되는 함수
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-  };
-
   // Handle client-side rendering
   useEffect(() => {
     setIsClient(true);
@@ -439,20 +466,27 @@ export default function TimerPage() {
     loadStats();
   }, []);
 
-  // Redirect to home page if user info is not set
+  // Redirect to login page if not authenticated
   useEffect(() => {
-    if (isClient && !isUserInfoSet) {
-      router.push("/");
+    if (isClient) {
+      if (status === "unauthenticated" || (!isUserInfoSet && status !== "loading")) {
+        router.push("/login");
+      }
     }
-  }, [isClient, isUserInfoSet, router]);
+  }, [isClient, isUserInfoSet, status, router]);
 
   // Show loading state until client-side rendering is complete
-  if (!isClient || !userInfo) {
+  if (!isClient || status === "loading") {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p>로딩 중...</p>
       </div>
     );
+  }
+
+  // If not authenticated, don't render the page content
+  if (status === "unauthenticated" || !userInfo) {
+    return null; // Will redirect to login page
   }
 
   // 현재 활성화된 탭에 따라 다른 컴포넌트를 렌더링
@@ -467,8 +501,13 @@ export default function TimerPage() {
             {/* 중앙: 큰 타이머 UI */}
             <div className="flex-1 flex items-center justify-center py-4">
               <Timer 
-                initialTime={25 * 60} // 기본 25분 (AI 추천 시간은 컴포넌트 내부에서 처리)
-                onComplete={handleTimerComplete} 
+                initialTime={25 * 60}
+                currentTime={currentTime}
+                isActive={isActive}
+                isPaused={isPaused}
+                currentFocusRate={focusRate}
+                onStateChange={handleTimerStateChange}
+                onComplete={handleTimerComplete}
               />
             </div>
           </>
@@ -496,21 +535,28 @@ export default function TimerPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-50">
-      {/* 헤더 */}
-      <header className="p-4 bg-white shadow-sm">
-        <h1 className="text-xl font-bold text-center">
-          안녕하세요, {userInfo.nickname}님!
-        </h1>
-      </header>
-
-      {/* 메인 콘텐츠 */}
-      <main className="flex-1 p-4 flex flex-col space-y-4">
-        {renderActiveTabContent()}
-
-        {/* 하단: 메뉴 탭 */}
-        <MenuTabs onTabChange={handleTabChange} />
-      </main>
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <Tabs defaultValue="timer" value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="timer">타이머</TabsTrigger>
+          <TabsTrigger value="stats">통계</TabsTrigger>
+          <TabsTrigger value="settings">설정</TabsTrigger>
+        </TabsList>
+        <TabsContent value="timer">
+          {renderActiveTabContent()}
+        </TabsContent>
+        <TabsContent value="stats">
+          <StatsView 
+            weeklyStudyTime={weeklyStudyTime}
+            weeklyFocusRate={weeklyFocusRate}
+            bestStudyDay={bestStudyDay}
+            bestStudyTime={bestStudyTime}
+          />
+        </TabsContent>
+        <TabsContent value="settings">
+          <SettingsView />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 } 
