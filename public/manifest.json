@@ -1,0 +1,21 @@
+{
+  "name": "AI 기반 스마트 공부 타이머",
+  "short_name": "AI 타이머",
+  "description": "사용 패턴 학습 기반 맞춤형 집중 타이머",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+} 
