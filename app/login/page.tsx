@@ -28,16 +28,19 @@ export default function LoginPage() {
     setError(null);
     
     try {
-      const result = await signIn(provider, { 
-        redirect: true,
-        callbackUrl: "/timer"
-      });
-      
-      // redirect: true로 설정했기 때문에 이 코드는 실행되지 않을 수 있음
-      if (result?.error) {
-        setError(`로그인 중 오류가 발생했습니다: ${result.error}`);
-        console.error(`${provider} 로그인 오류:`, result.error);
+      // 구글 로그인의 경우 callbackUrl을 명시적으로 지정하지 않음
+      if (provider === "google") {
+        await signIn(provider, { 
+          redirect: true
+        });
+      } else {
+        await signIn(provider, { 
+          redirect: true,
+          callbackUrl: "/timer"
+        });
       }
+      
+      // redirect: true로 설정했기 때문에 이 코드는 실행되지 않음
     } catch (error) {
       console.error(`${provider} 로그인 중 오류 발생:`, error);
       setError("로그인 중 오류가 발생했습니다. 다시 시도해주세요.");
