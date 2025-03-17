@@ -103,7 +103,18 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // 항상 타이머 페이지로 리디렉션
+      // 리디렉션 URL 로깅
+      console.log("리디렉션 URL:", { url, baseUrl });
+      
+      // URL이 상대 경로인 경우 baseUrl과 결합
+      if (url.startsWith("/")) {
+        return `${baseUrl}${url}`;
+      }
+      // URL이 같은 호스트인 경우 허용
+      else if (new URL(url).origin === baseUrl) {
+        return url;
+      }
+      // 기본적으로 타이머 페이지로 리디렉션
       return `${baseUrl}/timer`;
     },
   },

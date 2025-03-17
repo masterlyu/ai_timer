@@ -28,17 +28,10 @@ export default function LoginPage() {
     setError(null);
     
     try {
-      // 구글 로그인의 경우 callbackUrl을 명시적으로 지정하지 않음
-      if (provider === "google") {
-        await signIn(provider, { 
-          redirect: true
-        });
-      } else {
-        await signIn(provider, { 
-          redirect: true,
-          callbackUrl: "/timer"
-        });
-      }
+      // 모든 소셜 로그인에 대해 기본 설정 사용
+      await signIn(provider, { 
+        redirect: true
+      });
       
       // redirect: true로 설정했기 때문에 이 코드는 실행되지 않음
     } catch (error) {
